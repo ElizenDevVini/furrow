@@ -1,0 +1,33 @@
+:root {
+  --bg: #f4eee3;
+  --ink: #2b2621;
+  --ink-soft: #7a6f62;
+  --rule: #d9cfbf;
+  --soil: #b9926b;
+  --grass: #a9c9a0;
+  --tsla: #e06c5b;
+  --aapl: #8fc27a;
+  --nvda: #7ac142;
+  --msft: #6fa8dc;
+  --amzn: #e8a04a;
+  --font-display: 'Newsreader', Georgia, serif;
+  --font-mono: 'IBM Plex Mono', Menlo, monospace;
+}
+
+body {
+  background: var(--bg);
+  margin: 0;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
