@@ -187,13 +187,29 @@ addEventListener('keydown', (event) => {
   }
 })
 
-function projectTile(index) {
-  const pos = sceneApi.tileWorldPos(index)
+const PROMPT_LABEL_HEIGHT = 1.55
+
+function projectPoint(pos) {
   pos.project(camera)
   return {
     x: (pos.x * 0.5 + 0.5) * innerWidth,
     y: (-pos.y * 0.5 + 0.5) * innerHeight
   }
+}
+
+function projectTile(index) {
+  return projectPoint(sceneApi.tileWorldPos(index))
+}
+
+// the label follows the farmer (above the hat) when it's reporting on the
+// tile the character is actually facing, so it doesn't sit on the body --
+// but a hover-only tile (not the focused one) has no character to anchor to.
+function projectLabelAnchor(index) {
+  if (index === player.focusedTile) {
+    const p = player.group.position
+    return projectPoint(new THREE.Vector3(p.x, p.y + PROMPT_LABEL_HEIGHT, p.z))
+  }
+  return projectTile(index)
 }
 
 const GROW_SOUND_RATE = { 1: 0.9, 2: 1.0, 3: 1.1 }
@@ -236,7 +252,7 @@ renderer.setAnimationLoop(() => {
 
   const activeIndex = player.focusedTile >= 0 ? player.focusedTile : picking.hovered
   if (activeIndex >= 0) {
-    const { x, y } = projectTile(activeIndex)
+    const { x, y } = projectLabelAnchor(activeIndex)
     ui.updateTileLabel(activeIndex, snap.tiles[activeIndex], x, y)
   } else {
     ui.updateTileLabel(-1, null, 0, 0)

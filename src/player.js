@@ -1,10 +1,13 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { GRASS_TOP_Y, TILE_TOP_OFFSET, TREE_POSITIONS } from './scene.js'
+import { CAMERA_DEFAULT_YAW, GRASS_TOP_Y, TILE_TOP_OFFSET, TREE_POSITIONS } from './scene.js'
 import { soilPuff } from './fx.js'
 
 const GLTF_HEIGHT = 1.7
 const TARGET_HEIGHT = 1.15
+const MODEL_SCALE = TARGET_HEIGHT / GLTF_HEIGHT
+const BREATHE_RATE = 1.4
+const BREATHE_AMOUNT = 0.01
 const MOVE_SPEED = 3.0
 const TURN_LERP = 12
 const Y_FOLLOW_LERP = 14
@@ -63,7 +66,7 @@ function pushOutOfCircle(x, z, cx, cz, r) {
 async function loadFarmer(url) {
   const gltf = await new GLTFLoader().loadAsync(url)
   const model = gltf.scene
-  model.scale.setScalar(TARGET_HEIGHT / GLTF_HEIGHT)
+  model.scale.setScalar(MODEL_SCALE)
 
   model.traverse((obj) => {
     if (!obj.isSkinnedMesh) return
@@ -78,10 +81,18 @@ async function loadFarmer(url) {
 
   const mixer = new THREE.AnimationMixer(model)
   const clip = (pred) => gltf.animations.find(pred)
-  const walk = mixer.clipAction(clip((c) => c.name.includes('Walk')))
-  const idle = mixer.clipAction(clip((c) => c.name === 'Idle'))
+  const walkClip = clip((c) => c.name.includes('Walk'))
+  const walk = mixer.clipAction(walkClip)
   const harvest = mixer.clipAction(clip((c) => c.name === 'Harvest'))
   const plant = mixer.clipAction(clip((c) => c.name === 'Plant'))
+
+  // the bundled Idle clip reads as slumped through its whole loop rather
+  // than at one bad frame, so the resting pose holds the walk cycle's own
+  // first frame instead -- upright, hands at sides, face toward the camera.
+  // it needs its own action (a cloned clip) so it can crossfade independently
+  // of the walk action's advancing time.
+  const rest = mixer.clipAction(walkClip.clone())
+  rest.timeScale = 0
 
   for (const action of [harvest, plant]) {
     action.setLoop(THREE.LoopOnce, 1)
@@ -90,12 +101,13 @@ async function loadFarmer(url) {
   harvest.timeScale = HARVEST_TIMESCALE
   plant.timeScale = PLANT_TIMESCALE
 
-  return { model, mixer, walk, idle, harvest, plant }
+  return { model, mixer, walk, rest, harvest, plant }
 }
 
 export function createPlayer({ scene, camera, sceneApi, tiles, getPlant, hasSeed, onPlant, onHarvest, onToast, audio }) {
   const group = new THREE.Group()
   group.position.set(SPAWN.x, GRASS_TOP_Y, SPAWN.z)
+  group.rotation.y = CAMERA_DEFAULT_YAW
   scene.add(group)
 
   let rig = null
@@ -107,6 +119,7 @@ export function createPlayer({ scene, camera, sceneApi, tiles, getPlant, hasSeed
   let stepTimer = 0
   let wasMoving = false
   let firstStepPending = false
+  let breatheT = Math.random() * 10
   const pressed = new Set()
   let clickTarget = null
   let clickArrive = null
@@ -114,8 +127,8 @@ export function createPlayer({ scene, camera, sceneApi, tiles, getPlant, hasSeed
   loadFarmer(import.meta.env.BASE_URL + 'assets/farmer.glb').then((loaded) => {
     rig = loaded
     group.add(rig.model)
-    activeAction = rig.idle
-    rig.idle.play()
+    activeAction = rig.rest
+    rig.rest.play()
   })
 
   window.addEventListener('keydown', (event) => {
@@ -129,10 +142,14 @@ export function createPlayer({ scene, camera, sceneApi, tiles, getPlant, hasSeed
     pressed.delete(event.code)
   })
 
+  // crossFadeFrom only schedules a weight ramp -- it never activates the
+  // incoming action in the mixer, so without an explicit play() here every
+  // action past the first stays frozen at time 0 with no influence on the
+  // skeleton while the outgoing action fades out from under it.
   function fadeTo(action, duration) {
     if (!action || activeAction === action) return
-    if (activeAction) action.crossFadeFrom(activeAction, duration, false)
-    else action.reset().fadeIn(duration).play()
+    action.crossFadeFrom(activeAction, duration, false)
+    action.play()
     activeAction = action
   }
 
@@ -226,7 +243,7 @@ export function createPlayer({ scene, camera, sceneApi, tiles, getPlant, hasSeed
     if (pendingAction.elapsed >= pendingAction.holdAt) {
       pendingAction = null
       busy = false
-      fadeTo(rig.idle, LOCOMOTION_FADE)
+      fadeTo(rig.rest, LOCOMOTION_FADE)
     }
   }
 
@@ -249,6 +266,7 @@ export function createPlayer({ scene, camera, sceneApi, tiles, getPlant, hasSeed
 
   function playOneShot(action, holdAt) {
     busy = true
+    action.reset()
     fadeTo(action, LOCOMOTION_FADE)
     pendingAction = { elapsed: 0, midFired: false, holdAt, onMid: null }
     return pendingAction
@@ -281,6 +299,14 @@ export function createPlayer({ scene, camera, sceneApi, tiles, getPlant, hasSeed
     clickArrive = onArrive
   }
 
+  // the rest pose is a frozen frame (walk.timeScale stays 0), so it needs its
+  // own procedural life -- a slow scale.y wobble standing in for a breath.
+  function updateBreathe(dt, resting) {
+    breatheT += dt
+    const wobble = resting ? Math.sin(breatheT * BREATHE_RATE) * BREATHE_AMOUNT : 0
+    rig.model.scale.y = MODEL_SCALE * (1 + wobble)
+  }
+
   function update(dt) {
     if (!rig) return
     updatePendingAction(dt)
@@ -298,9 +324,10 @@ export function createPlayer({ scene, camera, sceneApi, tiles, getPlant, hasSeed
       }
     }
     if (!busy) {
-      fadeTo(moving ? rig.walk : rig.idle, LOCOMOTION_FADE)
+      fadeTo(moving ? rig.walk : rig.rest, LOCOMOTION_FADE)
       rig.walk.timeScale = Math.max(0.05, speedRatio * 1.25)
     }
+    updateBreathe(dt, !busy && !moving)
 
     group.position.y += (surfaceY() - group.position.y) * Math.min(1, dt * Y_FOLLOW_LERP)
     updateLocomotionFeel(dt, moving)

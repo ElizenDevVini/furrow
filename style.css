@@ -201,7 +201,7 @@ canvas {
 
 .toast {
   position: fixed;
-  bottom: 190px;
+  bottom: 193px;
   left: 50%;
   z-index: 1;
   background: var(--bg);

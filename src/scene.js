@@ -5,7 +5,7 @@ import { TIMING, spring } from './anim.js'
 export const GRASS_TOP_Y = 0.12
 const TILE_REST_Y = 0.12
 export const TILE_TOP_OFFSET = 0.09
-const CAMERA_DEFAULT_YAW = -0.6
+export const CAMERA_DEFAULT_YAW = -0.6
 
 export const SILO_POS = { x: 3.4, z: -3.4 }
 export const TREE_POSITIONS = [
@@ -323,7 +323,7 @@ function bindRigEvents(renderer, state, defaultYaw) {
   renderer.domElement.addEventListener(
     'wheel',
     (event) => {
-      state.distance = clamp(state.distance + event.deltaY * 0.02, 15, 28)
+      state.distance = clamp(state.distance + event.deltaY * 0.02, 12, 24)
     },
     { passive: true }
   )
@@ -354,7 +354,7 @@ function updateRig(camera, state, dt) {
 }
 
 function createCameraRig(renderer, camera) {
-  const state = createRigState(CAMERA_DEFAULT_YAW, 0.55, 21)
+  const state = createRigState(CAMERA_DEFAULT_YAW, 0.5, 16)
   state.punch = 0
   state.punchVelocity = 0
   bindRigEvents(renderer, state, CAMERA_DEFAULT_YAW)
