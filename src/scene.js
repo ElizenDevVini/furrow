@@ -1,8 +1,10 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
+import { TIMING, spring } from './anim.js'
 
 const GRASS_TOP_Y = 0.12
 const TILE_REST_Y = 0.12
+export const TILE_TOP_OFFSET = 0.09
 
 function addLights(scene) {
   const hemi = new THREE.HemisphereLight('#fff6e8', '#9fb894', 0.9)
@@ -79,23 +81,25 @@ function addSilo(farm) {
 }
 
 function addFence(farm) {
+  // runs along the front-left edge of the tile grid (x = -3.65), on the grass
+  // strip outside it, so it never crosses a tile.
   const fenceMat = new THREE.MeshStandardMaterial({ color: '#d8c8ad', roughness: 1, metalness: 0 })
   const count = 6
   const spacing = 0.7
-  const z = 4.0
-  const startX = -3.6
+  const x = -4.05
+  const startZ = -0.1
 
   for (let i = 0; i < count; i++) {
     const post = new THREE.Mesh(new RoundedBoxGeometry(0.08, 0.5, 0.08, 2, 0.02), fenceMat)
-    post.position.set(startX + i * spacing, GRASS_TOP_Y + 0.25, z)
+    post.position.set(x, GRASS_TOP_Y + 0.25, startZ + i * spacing)
     post.castShadow = true
     farm.add(post)
   }
 
   const railLength = spacing * (count - 1) + 0.1
-  const railX = startX + (spacing * (count - 1)) / 2
-  const railTop = new THREE.Mesh(new THREE.BoxGeometry(railLength, 0.06, 0.06), fenceMat)
-  railTop.position.set(railX, GRASS_TOP_Y + 0.38, z)
+  const railZ = startZ + (spacing * (count - 1)) / 2
+  const railTop = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, railLength), fenceMat)
+  railTop.position.set(x, GRASS_TOP_Y + 0.38, railZ)
   railTop.castShadow = true
   farm.add(railTop)
 
@@ -210,7 +214,7 @@ function bindRigEvents(renderer, state, defaultYaw) {
   renderer.domElement.addEventListener(
     'wheel',
     (event) => {
-      state.distance = clamp(state.distance + event.deltaY * 0.02, 15, 28)
+      state.distance = clamp(state.distance + event.deltaY * 0.02, 18, 30)
     },
     { passive: true }
   )
@@ -224,12 +228,17 @@ function updateRig(camera, target, state, dt) {
   state.curParallaxYaw += (state.parallaxYaw - state.curParallaxYaw) * lerpFactor
   state.curParallaxPitch += (state.parallaxPitch - state.curParallaxPitch) * lerpFactor
 
+  const punchSpring = spring(state.punch, 0, state.punchVelocity, dt, 300, 20)
+  state.punch = punchSpring.value
+  state.punchVelocity = punchSpring.velocity
+
   const yaw = state.curYaw + state.curParallaxYaw
   const pitch = state.curPitch + state.curParallaxPitch
+  const distance = state.curDistance + state.punch
   camera.position.set(
-    target.x + state.curDistance * Math.sin(yaw) * Math.cos(pitch),
-    target.y + state.curDistance * Math.sin(pitch),
-    target.z + state.curDistance * Math.cos(yaw) * Math.cos(pitch)
+    target.x + distance * Math.sin(yaw) * Math.cos(pitch),
+    target.y + distance * Math.sin(pitch),
+    target.z + distance * Math.cos(yaw) * Math.cos(pitch)
   )
   camera.lookAt(target)
 }
@@ -237,9 +246,16 @@ function updateRig(camera, target, state, dt) {
 function createCameraRig(renderer, camera) {
   const target = new THREE.Vector3(0, 0.3, 0)
   const defaultYaw = -0.6
-  const state = createRigState(defaultYaw, 0.62, 21)
+  const state = createRigState(defaultYaw, 0.55, 26)
+  state.punch = 0
+  state.punchVelocity = 0
   bindRigEvents(renderer, state, defaultYaw)
-  return { update: (dt) => updateRig(camera, target, state, dt) }
+  return {
+    update: (dt) => updateRig(camera, target, state, dt),
+    punch: () => {
+      state.punch -= TIMING.cameraPunch * state.distance
+    }
+  }
 }
 
 export function createScene(renderer) {
@@ -266,5 +282,19 @@ export function createScene(renderer) {
     rig.update(dt)
   }
 
-  return { scene, camera, tiles, silo, update }
+  function tileWorldPos(index) {
+    const pos = new THREE.Vector3()
+    tiles[index].getWorldPosition(pos)
+    pos.y += TILE_TOP_OFFSET
+    return pos
+  }
+
+  // one-shot downward nudge on landing/kick; the existing hover spring in
+  // picking.js pulls it back with its own natural overshoot, so no separate
+  // decay timer is needed here.
+  function kickTile(index) {
+    tiles[index].position.y -= TIMING.tileKick
+  }
+
+  return { scene, camera, tiles, silo, update, punch: rig.punch, tileWorldPos, kickTile }
 }
