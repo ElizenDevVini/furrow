@@ -36,6 +36,9 @@ export function createSimApi() {
     state() {
       return sim.snapshot(Date.now())
     },
+    dayInfo() {
+      return sim.dayInfo(Date.now())
+    },
     subscribe(fn) {
       listeners.add(fn)
       return () => listeners.delete(fn)

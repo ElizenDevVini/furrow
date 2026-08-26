@@ -2,10 +2,16 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { TIMING, spring } from './anim.js'
 
-const GRASS_TOP_Y = 0.12
+export const GRASS_TOP_Y = 0.12
 const TILE_REST_Y = 0.12
 export const TILE_TOP_OFFSET = 0.09
 const CAMERA_DEFAULT_YAW = -0.6
+
+export const SILO_POS = { x: 3.4, z: -3.4 }
+export const TREE_POSITIONS = [
+  { x: -3.5, z: -3.4 },
+  { x: -2.6, z: -3.8 }
+]
 
 function addLights(scene) {
   const hemi = new THREE.HemisphereLight('#fff6e8', '#9fb894', 0.9)
@@ -25,6 +31,86 @@ function addLights(scene) {
   sun.shadow.radius = 4
   sun.shadow.normalBias = 0.02
   scene.add(sun)
+
+  return { hemi, sun }
+}
+
+// a 4-minute loop that never goes dark: morning -> midday -> golden hour ->
+// back to morning. golden hour's low sun position is what gives the long
+// shadows, no separate shadow-length parameter needed.
+const DAY_KEYFRAMES = [
+  {
+    name: 'morning',
+    sunColor: '#fff1d6',
+    sunPos: [6, 10, 4],
+    sunIntensity: 1.6,
+    hemiSky: '#fff6e8',
+    hemiGround: '#9fb894',
+    hemiIntensity: 0.9,
+    fog: '#f4eee3'
+  },
+  {
+    name: 'midday',
+    sunColor: '#ffffff',
+    sunPos: [2, 15, 1],
+    sunIntensity: 1.9,
+    hemiSky: '#ffffff',
+    hemiGround: '#a9c9a0',
+    hemiIntensity: 1.05,
+    fog: '#f7f4ec'
+  },
+  {
+    name: 'golden hour',
+    sunColor: '#ffb066',
+    sunPos: [9, 4, 6],
+    sunIntensity: 1.4,
+    hemiSky: '#ffd9a8',
+    hemiGround: '#c9a978',
+    hemiIntensity: 0.85,
+    fog: '#f3e3cf'
+  }
+]
+
+const dcColorA = new THREE.Color()
+const dcColorB = new THREE.Color()
+const dcPosA = new THREE.Vector3()
+const dcPosB = new THREE.Vector3()
+const dcFogA = new THREE.Color()
+const dcFogB = new THREE.Color()
+
+// t is 0..1 through the day loop. returns the active keyframe's name for
+// the "day 1 · morning" label.
+function updateDayCycle(refs, t) {
+  const n = DAY_KEYFRAMES.length
+  const scaled = ((t % 1) + 1) % 1 * n
+  const idx = Math.floor(scaled) % n
+  const frac = scaled - Math.floor(scaled)
+  const a = DAY_KEYFRAMES[idx]
+  const b = DAY_KEYFRAMES[(idx + 1) % n]
+
+  dcColorA.set(a.sunColor)
+  dcColorB.set(b.sunColor)
+  refs.sun.color.copy(dcColorA).lerp(dcColorB, frac)
+  refs.sun.intensity = a.sunIntensity + (b.sunIntensity - a.sunIntensity) * frac
+  dcPosA.set(...a.sunPos)
+  dcPosB.set(...b.sunPos)
+  refs.sun.position.lerpVectors(dcPosA, dcPosB, frac)
+
+  dcColorA.set(a.hemiSky)
+  dcColorB.set(b.hemiSky)
+  refs.hemi.color.copy(dcColorA).lerp(dcColorB, frac)
+  dcColorA.set(a.hemiGround)
+  dcColorB.set(b.hemiGround)
+  refs.hemi.groundColor.copy(dcColorA).lerp(dcColorB, frac)
+  refs.hemi.intensity = a.hemiIntensity + (b.hemiIntensity - a.hemiIntensity) * frac
+
+  dcFogA.set(a.fog)
+  dcFogB.set(b.fog)
+  const fogColor = dcFogA.lerp(dcFogB, frac)
+  refs.scene.fog.color.copy(fogColor)
+  refs.scene.background.copy(fogColor)
+
+  return a.name
 }
 
 function addIsland(farm) {
@@ -76,7 +162,7 @@ function addSilo(farm) {
   cap.castShadow = true
   silo.add(cap)
 
-  silo.position.set(3.4, 0, -3.4)
+  silo.position.set(SILO_POS.x, 0, SILO_POS.z)
   farm.add(silo)
   return silo
 }
@@ -130,8 +216,7 @@ function addTree(farm, x, z) {
 }
 
 function addTrees(farm) {
-  addTree(farm, -3.5, -3.4)
-  addTree(farm, -2.6, -3.8)
+  for (const { x, z } of TREE_POSITIONS) addTree(farm, x, z)
 }
 
 // clouds live in the half of the world opposite the camera's default facing
@@ -202,7 +287,9 @@ function createRigState(defaultYaw, defaultPitch, defaultDistance) {
     curPitch: defaultPitch,
     curDistance: defaultDistance,
     curParallaxYaw: 0,
-    curParallaxPitch: 0
+    curParallaxPitch: 0,
+    target: new THREE.Vector3(0, 0.3, 0),
+    desiredTarget: new THREE.Vector3(0, 0.3, 0)
   }
 }
 
@@ -236,19 +323,20 @@ function bindRigEvents(renderer, state, defaultYaw) {
   renderer.domElement.addEventListener(
     'wheel',
     (event) => {
-      state.distance = clamp(state.distance + event.deltaY * 0.02, 18, 30)
+      state.distance = clamp(state.distance + event.deltaY * 0.02, 15, 28)
     },
     { passive: true }
   )
 }
 
-function updateRig(camera, target, state, dt) {
+function updateRig(camera, state, dt) {
   const lerpFactor = Math.min(1, dt * 6)
   state.curYaw += (state.yaw - state.curYaw) * lerpFactor
   state.curPitch += (state.pitch - state.curPitch) * lerpFactor
   state.curDistance += (state.distance - state.curDistance) * lerpFactor
   state.curParallaxYaw += (state.parallaxYaw - state.curParallaxYaw) * lerpFactor
   state.curParallaxPitch += (state.parallaxPitch - state.curParallaxPitch) * lerpFactor
+  state.target.lerp(state.desiredTarget, Math.min(1, dt * 4))
 
   const punchSpring = spring(state.punch, 0, state.punchVelocity, dt, 300, 20)
   state.punch = punchSpring.value
@@ -258,21 +346,21 @@ function updateRig(camera, target, state, dt) {
   const pitch = state.curPitch + state.curParallaxPitch
   const distance = state.curDistance + state.punch
   camera.position.set(
-    target.x + distance * Math.sin(yaw) * Math.cos(pitch),
-    target.y + distance * Math.sin(pitch),
-    target.z + distance * Math.cos(yaw) * Math.cos(pitch)
+    state.target.x + distance * Math.sin(yaw) * Math.cos(pitch),
+    state.target.y + distance * Math.sin(pitch),
+    state.target.z + distance * Math.cos(yaw) * Math.cos(pitch)
   )
-  camera.lookAt(target)
+  camera.lookAt(state.target)
 }
 
 function createCameraRig(renderer, camera) {
-  const target = new THREE.Vector3(0, 0.3, 0)
-  const state = createRigState(CAMERA_DEFAULT_YAW, 0.55, 26)
+  const state = createRigState(CAMERA_DEFAULT_YAW, 0.55, 21)
   state.punch = 0
   state.punchVelocity = 0
   bindRigEvents(renderer, state, CAMERA_DEFAULT_YAW)
   return {
-    update: (dt) => updateRig(camera, target, state, dt),
+    update: (dt) => updateRig(camera, state, dt),
+    setTarget: (vec) => state.desiredTarget.set(vec.x, vec.y + 0.3, vec.z),
     punch: () => {
       state.punch -= TIMING.cameraPunch * state.distance
     }
@@ -284,7 +372,7 @@ export function createScene(renderer) {
   scene.background = new THREE.Color('#f4eee3')
   scene.fog = new THREE.Fog('#f4eee3', 22, 40)
 
-  addLights(scene)
+  const { hemi, sun } = addLights(scene)
 
   const farm = new THREE.Group()
   scene.add(farm)
@@ -298,9 +386,13 @@ export function createScene(renderer) {
   const camera = new THREE.PerspectiveCamera(28, innerWidth / innerHeight, 0.1, 100)
   const rig = createCameraRig(renderer, camera)
 
-  function update(dt) {
+  // followTarget: world position the camera orbit centers on (the player).
+  // dayT: 0..1 phase through the day loop; omit to leave lighting as-is.
+  function update(dt, followTarget, dayT) {
     updateClouds(clouds, dt)
+    if (followTarget) rig.setTarget(followTarget)
     rig.update(dt)
+    return dayT == null ? null : updateDayCycle({ scene, hemi, sun }, dayT)
   }
 
   function tileWorldPos(index) {

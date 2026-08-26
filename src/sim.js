@@ -26,6 +26,7 @@ const MINUTE_MS = 60000
 const STORAGE_KEY = 'furrow/v1'
 const ALLOWANCE_PER_HOUR = 0.01
 const ALLOWANCE_CAP = 0.05
+export const DAY_CYCLE_MS = 4 * 60000
 
 function mulberry32(seed) {
   let a = seed >>> 0
@@ -82,8 +83,16 @@ function defaultState() {
     tiles: new Array(25).fill(null),
     holdings: Object.fromEntries(TICKERS.map((t) => [t, 0])),
     silo: 0,
-    lastAccrual: Date.now()
+    lastAccrual: Date.now(),
+    dayStart: Date.now()
   }
+}
+
+// state saved by an earlier chunk has no dayStart key; without this the day
+// cycle math divides by NaN and the scene lighting goes dark.
+function migrateState(s) {
+  if (!Number.isFinite(s.dayStart)) s.dayStart = Date.now()
+  return s
 }
 
 let state = null
@@ -98,7 +107,7 @@ function accrue(now) {
 export function load() {
   if (location.search.includes('reset=1')) localStorage.removeItem(STORAGE_KEY)
   const raw = localStorage.getItem(STORAGE_KEY)
-  state = raw ? JSON.parse(raw) : defaultState()
+  state = raw ? migrateState(JSON.parse(raw)) : defaultState()
   accrue(Date.now())
   save()
   return state
@@ -176,6 +185,13 @@ export function skip(index, now) {
 export function discard(index) {
   state.tiles[index] = null
   save()
+}
+
+export function dayInfo(now) {
+  const elapsed = Math.max(0, now - state.dayStart)
+  const day = Math.floor(elapsed / DAY_CYCLE_MS) + 1
+  const t = (elapsed % DAY_CYCLE_MS) / DAY_CYCLE_MS
+  return { day, t }
 }
 
 export function snapshot(now) {

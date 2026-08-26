@@ -50,9 +50,9 @@ function burst(scene, worldPos, { count, color, duration, speed, upSpeed, gravit
   }
 }
 
-export function soilPuff(scene, worldPos) {
+export function soilPuff(scene, worldPos, { count = 8 } = {}) {
   burst(scene, worldPos, {
-    count: 8,
+    count,
     color: '#b9926b',
     duration: TIMING.puffMs / 1000,
     speed: () => 0.8 + Math.random() * 1.2,

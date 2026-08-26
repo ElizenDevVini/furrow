@@ -1,0 +1,10 @@
+id,role,type,description,size/ratio,style line ref,source
+farmer_concept,hero concept reference,image,small farmer in coral overalls and straw hat in A-pose for image-to-3D,1024x1024 1:1,style formula (soft matte low-poly toy diorama),higgsfield gpt_image_2
+farmer,hero character,3d,rigged textured GLB of the farmer with Casual_Walk plus Idle / Pull_Radish / Bend_Over_Pick_Up clips,~15k tris,style token in texture_prompt,higgsfield image_to_3d + 3d_rigging
+music,background loop,audio,gentle cozy farm morning loop marimba felt piano guitar 84 bpm no drums,60 s loop mp3 128k,tonal language of the formula (warm pastel calm),higgsfield sonilo_music
+plant,sfx primary verb,audio,soft seed plop into loose soil,0.26 s mp3,,higgsfield seed_audio
+grow,sfx feedback,audio,springy pop of a plant sprouting,0.33 s mp3,,higgsfield seed_audio
+harvest,sfx reward,audio,fruit pluck with a small sparkly chime,1.1 s mp3,,higgsfield seed_audio
+ready,sfx environment,audio,soft wooden two-note bell ding,0.27 s mp3,,higgsfield seed_audio
+step,sfx movement,audio,soft footstep on dry soil,0.09 s mp3,,higgsfield seed_audio
+tick,sfx ui,audio,tiny wooden ui knock,short mp3,,higgsfield seed_audio (second attempt; first was near silent)

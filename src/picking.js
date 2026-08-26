@@ -46,7 +46,7 @@ function bindPointerEvents(renderer, pointer, raycastTiles, state) {
 export function createPicking(renderer, camera, tiles) {
   const raycaster = new THREE.Raycaster()
   const pointer = new THREE.Vector2()
-  const state = { hovered: -1, onClick: null }
+  const state = { hovered: -1, focus: -1, onClick: null }
   const velocities = tiles.map(() => 0)
   const baseColors = tiles.map((tile) => tile.material.color.clone())
 
@@ -62,8 +62,9 @@ export function createPicking(renderer, camera, tiles) {
     const neighbors = state.hovered >= 0 ? edgeNeighbors(tiles, state.hovered) : []
     tiles.forEach((tile, i) => {
       const rest = tile.userData.restY
+      const lifted = i === state.hovered || i === state.focus
       let target = rest
-      if (i === state.hovered) target = rest + TIMING.hoverLift
+      if (lifted) target = rest + TIMING.hoverLift
       else if (neighbors.includes(tile)) target = rest - 0.02
 
       const s = spring(tile.position.y, target, velocities[i], dt, TIMING.hoverStiffness, TIMING.hoverDamping)
@@ -71,7 +72,7 @@ export function createPicking(renderer, camera, tiles) {
       velocities[i] = s.velocity
 
       const brighter = baseColors[i].clone().lerp(new THREE.Color('#ffffff'), 0.02)
-      const targetColor = i === state.hovered ? brighter : baseColors[i]
+      const targetColor = lifted ? brighter : baseColors[i]
       tile.material.color.lerp(targetColor, Math.min(1, dt * 10))
     })
   }
@@ -80,6 +81,12 @@ export function createPicking(renderer, camera, tiles) {
     update,
     get hovered() {
       return state.hovered
+    },
+    get focus() {
+      return state.focus
+    },
+    setFocus(index) {
+      state.focus = index
     },
     onTileClick(fn) {
       state.onClick = fn
