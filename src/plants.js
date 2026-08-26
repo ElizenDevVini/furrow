@@ -4,6 +4,12 @@ import { TIMING, tween, delay, easings, spring, springVec } from './anim.js'
 
 export const TICKERS = ['TSLA', 'AAPL', 'NVDA', 'MSFT', 'AMZN']
 
+// growth-stage groups (everything past the seed/mound) read too small for a
+// 1.3-unit tile, so they get a flat bump; fruit gets an extra bump on top so
+// a ready plant reads mostly as fruit filling the tile.
+const SPECIES_SCALE = 1.35
+const FRUIT_SCALE = 1.2
+
 export const PLANT_SPECS = {
   TSLA: { fruitColor: '#e06c5b', leafColor: '#8fc27a' },
   AAPL: { fruitColor: '#b9e08a', leafColor: '#8fc27a' },
@@ -71,6 +77,7 @@ function buildStage1(ticker) {
   group.add(a, b)
 
   group.userData.fruit = []
+  group.userData.baseScale = SPECIES_SCALE
   return group
 }
 
@@ -93,7 +100,7 @@ function buildTSLA(withFruit) {
     for (let i = 0; i < 5; i++) {
       const angle = (i / 5) * Math.PI * 2
       const berry = mesh(
-        new THREE.SphereGeometry(0.09, 8, 8),
+        new THREE.SphereGeometry(0.09 * FRUIT_SCALE, 8, 8),
         fruitMat,
         Math.cos(angle) * 0.14,
         1.02 + (i % 2) * 0.06,
@@ -126,7 +133,7 @@ function buildAAPL(withFruit) {
       const x = Math.sin(phi) * Math.cos(theta) * r
       const y = 0.75 + Math.cos(phi) * r
       const z = Math.sin(phi) * Math.sin(theta) * r
-      const apple = mesh(new THREE.SphereGeometry(0.1, 8, 8), fruitMat, x, y, z)
+      const apple = mesh(new THREE.SphereGeometry(0.1 * FRUIT_SCALE, 8, 8), fruitMat, x, y, z)
       apple.add(mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.06, 5), stemMat, 0, 0.1, 0))
       group.add(apple)
       group.userData.fruit.push(apple)
@@ -158,7 +165,7 @@ function buildNVDA(withFruit) {
   if (withFruit) {
     const tipMat = mat('#d7ff8a', { emissive: '#d7ff8a', emissiveIntensity: 0.7 })
     for (const pivot of blades) {
-      const tip = mesh(new THREE.SphereGeometry(0.06, 8, 8), tipMat, 0, 0.85, 0)
+      const tip = mesh(new THREE.SphereGeometry(0.06 * FRUIT_SCALE, 8, 8), tipMat, 0, 0.85, 0)
       pivot.add(tip)
       group.userData.fruit.push(tip)
     }
@@ -182,7 +189,13 @@ function buildMSFT(withFruit) {
     const cubeMat = mat('#6fa8dc')
     for (const dx of [-0.14, 0.14]) {
       for (const dz of [-0.14, 0.14]) {
-        const cube = mesh(new RoundedBoxGeometry(0.26, 0.26, 0.26, 2, 0.06), cubeMat, dx, 0.18, dz)
+        const cube = mesh(
+          new RoundedBoxGeometry(0.26 * FRUIT_SCALE, 0.26 * FRUIT_SCALE, 0.26 * FRUIT_SCALE, 2, 0.06 * FRUIT_SCALE),
+          cubeMat,
+          dx,
+          0.18,
+          dz
+        )
         group.add(cube)
         group.userData.fruit.push(cube)
       }
@@ -218,7 +231,7 @@ function buildAMZN(withFruit) {
 
   group.userData.fruit = []
   if (withFruit) {
-    const gourd = mesh(new THREE.SphereGeometry(0.3, 12, 10), mat('#e8a04a'), 0, 0.3, 0.15)
+    const gourd = mesh(new THREE.SphereGeometry(0.3 * FRUIT_SCALE, 12, 10), mat('#e8a04a'), 0, 0.3, 0.15)
     gourd.scale.y = 0.7
     gourd.add(mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.08, 6), mat('#a07a58'), 0, 0.24, 0))
     group.add(gourd)
@@ -229,9 +242,19 @@ function buildAMZN(withFruit) {
 
 const SPECIES_BUILDERS = { TSLA: buildTSLA, AAPL: buildAAPL, NVDA: buildNVDA, MSFT: buildMSFT, AMZN: buildAMZN }
 
+function measureHeight(group) {
+  group.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(group)
+  if (!isFinite(box.min.y) || !isFinite(box.max.y)) return 0
+  return box.max.y - box.min.y
+}
+
 function buildSpeciesStage(ticker, withFruit) {
   const group = SPECIES_BUILDERS[ticker](withFruit)
-  group.userData.baseScale = withFruit ? 1 : 0.65
+  group.userData.baseScale = (withFruit ? 1 : 0.65) * SPECIES_SCALE
+  // measured before the stage is scaled down to 0.001 for its pop-in tween,
+  // so this is the raw geometry height at scale 1, times the final baseScale.
+  group.userData.height = measureHeight(group) * group.userData.baseScale
   return group
 }
 
@@ -293,6 +316,26 @@ function setStagePlant(plant, n) {
   return Promise.all([growPromise, shrinkPromise])
 }
 
+// used by farm.restore to place a plant at a stage with no drop and no pop,
+// e.g. rebuilding the farm from saved sim state on page load.
+function restoreStagePlant(plant, n) {
+  plant.stage = n
+  plant.stages.forEach((s, i) => {
+    s.visible = i === n
+    s.scale.setScalar(i === n ? (s.userData.baseScale ?? 1) : 0.001)
+  })
+
+  const target = plant.stages[n]
+  const leaves = collectLeaves(target)
+  leaves.forEach((lf) => {
+    lf.rotation.x = lf.userData.restX
+    lf.userData.leafOpen = true
+    lf.userData.leafVel = 0
+  })
+  plant.activeLeaves = leaves
+  plant.fruit = target.userData.fruit
+}
+
 const ONE = new THREE.Vector3(1, 1, 1)
 
 function updatePlant(plant, dt, t) {
@@ -343,6 +386,7 @@ export function createPlant(ticker) {
   })
 
   plant.setStage = (n) => setStagePlant(plant, n)
+  plant.restoreStage = (n) => restoreStagePlant(plant, n)
   plant.squash = () => plant.squashScale.set(TIMING.squashXZ, TIMING.squashY, TIMING.squashXZ)
   plant.update = (dt, t) => updatePlant(plant, dt, t)
 

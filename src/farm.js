@@ -54,17 +54,32 @@ export function createFarm({ scene, camera, tiles, sceneApi }) {
     f.resolve(newPlant)
   }
 
+  function restore(index, ticker, stage) {
+    const tile = tiles[index]
+    const p = createPlant(ticker)
+    p.restY = TILE_TOP_OFFSET
+    p.position.y = TILE_TOP_OFFSET
+    p.restoreStage(stage)
+    tile.add(p)
+    plants[index] = p
+  }
+
   function grow(index) {
     const p = plants[index]
     if (!p || busy.has(index) || p.stage >= 3) return Promise.resolve()
     busy.add(index)
     return p.setStage(p.stage + 1).then(() => {
-      if (p.stage === 3) sparkle(scene, sceneApi.tileWorldPos(index))
+      if (p.stage === 3) {
+        const height = p.stages[3].userData.height ?? 1
+        const pos = sceneApi.tileWorldPos(index)
+        pos.y += height * 0.6
+        sparkle(scene, pos)
+      }
       busy.delete(index)
     })
   }
 
-  async function harvest(index, getScreenPoint) {
+  async function harvest(index, getScreenPoint, onFruitLanded) {
     const p = plants[index]
     if (!p || busy.has(index) || p.stage !== 3) return
     busy.add(index)
@@ -82,6 +97,7 @@ export function createFarm({ scene, camera, tiles, sceneApi }) {
           })
       )
     )
+    onFruitLanded?.()
 
     p.frozen = true
     await tween({
@@ -115,7 +131,7 @@ export function createFarm({ scene, camera, tiles, sceneApi }) {
     integrateSeeds(dt)
   }
 
-  return { plants, plant, grow, harvest, removeInstant, update }
+  return { plants, plant, grow, harvest, restore, removeInstant, update }
 }
 
 function disposePlant(plant) {

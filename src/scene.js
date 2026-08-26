@@ -5,6 +5,7 @@ import { TIMING, spring } from './anim.js'
 const GRASS_TOP_Y = 0.12
 const TILE_REST_Y = 0.12
 export const TILE_TOP_OFFSET = 0.09
+const CAMERA_DEFAULT_YAW = -0.6
 
 function addLights(scene) {
   const hemi = new THREE.HemisphereLight('#fff6e8', '#9fb894', 0.9)
@@ -133,24 +134,44 @@ function addTrees(farm) {
   addTree(farm, -2.6, -3.8)
 }
 
+// clouds live in the half of the world opposite the camera's default facing
+// (camera position angle = yaw, measured the same way the rig computes
+// position: x = sin(yaw)*..., z = cos(yaw)*...), so they read as distant
+// puffs behind the island instead of blobs in front of the lens. each cloud
+// oscillates around a fixed base angle rather than orbiting fully, so it can
+// never drift out of that back half.
+const CLOUD_ARC_HALF = Math.PI / 2
+const CLOUD_DRIFT_AMPLITUDE = CLOUD_ARC_HALF * 0.3
+
 function addClouds(scene) {
   const clouds = []
+  const center = CAMERA_DEFAULT_YAW + Math.PI
+  const spread = CLOUD_ARC_HALF - CLOUD_DRIFT_AMPLITUDE
+
   for (let i = 0; i < 5; i++) {
     const cloud = new THREE.Group()
-    const angle = (i / 5) * Math.PI * 2 + Math.random() * 0.5
-    const radius = 10 + Math.random() * 6
-    cloud.position.set(Math.cos(angle) * radius, 6 + Math.random() * 2, Math.sin(angle) * radius)
+    const baseAngle = center + (Math.random() * 2 - 1) * spread
+    const radius = 16 + Math.random() * 6
+    const y = 4 + Math.random() * 3
+
+    cloud.userData.baseAngle = baseAngle
+    cloud.userData.radius = radius
+    cloud.userData.phase = Math.random() * Math.PI * 2
+    cloud.userData.speed = 0.008 + Math.random() * 0.012
+    cloud.position.set(Math.sin(baseAngle) * radius, y, Math.cos(baseAngle) * radius)
 
     for (let j = 0; j < 3; j++) {
-      const mat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, metalness: 0, fog: false })
-      const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.9 + Math.random() * 0.5, 12, 12), mat)
+      const mat = new THREE.MeshBasicMaterial({
+        color: '#fbf7ef',
+        transparent: true,
+        opacity: 0.92,
+        fog: false
+      })
+      const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.7 + Math.random() * 0.6, 12, 12), mat)
       sphere.position.set(j * 0.9 - 0.9, Math.random() * 0.3, Math.random() * 0.4)
       cloud.add(sphere)
     }
 
-    cloud.userData.speed = 0.01 + Math.random() * 0.02
-    cloud.userData.radius = radius
-    cloud.userData.angle = angle
     scene.add(cloud)
     clouds.push(cloud)
   }
@@ -159,9 +180,10 @@ function addClouds(scene) {
 
 function updateClouds(clouds, dt) {
   for (const cloud of clouds) {
-    cloud.userData.angle += cloud.userData.speed * dt
-    cloud.position.x = Math.cos(cloud.userData.angle) * cloud.userData.radius
-    cloud.position.z = Math.sin(cloud.userData.angle) * cloud.userData.radius
+    cloud.userData.phase += cloud.userData.speed * dt
+    const angle = cloud.userData.baseAngle + Math.sin(cloud.userData.phase) * CLOUD_DRIFT_AMPLITUDE
+    cloud.position.x = Math.sin(angle) * cloud.userData.radius
+    cloud.position.z = Math.cos(angle) * cloud.userData.radius
   }
 }
 
@@ -245,11 +267,10 @@ function updateRig(camera, target, state, dt) {
 
 function createCameraRig(renderer, camera) {
   const target = new THREE.Vector3(0, 0.3, 0)
-  const defaultYaw = -0.6
-  const state = createRigState(defaultYaw, 0.55, 26)
+  const state = createRigState(CAMERA_DEFAULT_YAW, 0.55, 26)
   state.punch = 0
   state.punchVelocity = 0
-  bindRigEvents(renderer, state, defaultYaw)
+  bindRigEvents(renderer, state, CAMERA_DEFAULT_YAW)
   return {
     update: (dt) => updateRig(camera, target, state, dt),
     punch: () => {

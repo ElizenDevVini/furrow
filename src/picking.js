@@ -36,6 +36,7 @@ function bindPointerEvents(renderer, pointer, raycastTiles, state) {
   window.addEventListener('pointerup', (event) => {
     isDown = false
     if (dragged) return
+    if (event.target !== renderer.domElement) return
     setPointer(event)
     const tile = raycastTiles()
     if (tile >= 0) state.onClick?.(tile)
